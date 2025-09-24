@@ -1,0 +1,23 @@
+; https://editorconfig.org
+
+root = true
+
+[*]
+end_of_line = lf
+insert_final_newline = true
+indent_style = space
+indent_size = 4
+
+[*.{c,h,cc}]
+indent_size = 2
+
+[*.{S,s,asm}]
+indent_size = 8
+indent_style = tab
+
+[*.ld]
+indent_size = 2
+
+[Makefile]
+indent_style = tab
+indent_size = 8
