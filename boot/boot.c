@@ -1,5 +1,19 @@
 #include <stdint.h>
 #include <stddef.h>
+#include "elf.h"
+
+// Compiler intrinsics and runtime support
+void __chkstk(void) {
+  // Stack checking stub - not needed for our bootloader
+}
+
+void *memset(void *s, int c, size_t n) {
+  unsigned char *p = (unsigned char*)s;
+  while (n--) {
+    *p++ = (unsigned char)c;
+  }
+  return s;
+}
 
 // UEFI Basic Types
 typedef struct _EFI_SYSTEM_TABLE EFI_SYSTEM_TABLE;
@@ -146,9 +160,11 @@ struct _EFI_BOOT_SERVICES {
   EFI_STATUS (*GetMemoryMap)(UINTN*, EFI_MEMORY_DESCRIPTOR*, UINTN*, UINTN*, uint32_t*);
   EFI_STATUS (*AllocatePool)(EFI_MEMORY_TYPE, UINTN, void**);
   EFI_STATUS (*FreePool)(void*);
-  char _pad2[152];
+  char _pad2[88];
+  EFI_STATUS (*HandleProtocol)(EFI_HANDLE, void*, void**);
+  char _pad3[64];
   EFI_STATUS (*LocateProtocol)(void*, void*, void**);
-  char _pad3[96];
+  char _pad4[96];
   EFI_STATUS (*ExitBootServices)(EFI_HANDLE, UINTN);
 };
 
@@ -273,11 +289,266 @@ static EFI_SYSTEM_TABLE *gST = NULL;
 static EFI_BOOT_SERVICES *gBS = NULL;
 static EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL *gConOut = NULL;
 
+// EFI File System Structures
+typedef struct _EFI_FILE_PROTOCOL EFI_FILE_PROTOCOL;
+typedef struct _EFI_SIMPLE_FILE_SYSTEM_PROTOCOL EFI_SIMPLE_FILE_SYSTEM_PROTOCOL;
+
+typedef struct {
+  uint64_t Size;
+  uint64_t FileSize;
+  uint64_t PhysicalSize;
+  uint64_t CreateTime[2];
+  uint64_t LastAccessTime[2];
+  uint64_t ModificationTime[2];
+  uint64_t Attribute;
+  CHAR16 FileName[1];
+} EFI_FILE_INFO;
+
+#define EFI_FILE_MODE_READ   0x0000000000000001ULL
+#define EFI_FILE_MODE_WRITE  0x0000000000000002ULL
+#define EFI_FILE_MODE_CREATE 0x8000000000000000ULL
+
+struct _EFI_FILE_PROTOCOL {
+  uint64_t Revision;
+  EFI_STATUS (*Open)(EFI_FILE_PROTOCOL *This, EFI_FILE_PROTOCOL **NewHandle, CHAR16 *FileName, uint64_t OpenMode, uint64_t Attributes);
+  EFI_STATUS (*Close)(EFI_FILE_PROTOCOL *This);
+  EFI_STATUS (*Delete)(EFI_FILE_PROTOCOL *This);
+  EFI_STATUS (*Read)(EFI_FILE_PROTOCOL *This, UINTN *BufferSize, void *Buffer);
+  EFI_STATUS (*Write)(EFI_FILE_PROTOCOL *This, UINTN *BufferSize, void *Buffer);
+  EFI_STATUS (*GetPosition)(EFI_FILE_PROTOCOL *This, uint64_t *Position);
+  EFI_STATUS (*SetPosition)(EFI_FILE_PROTOCOL *This, uint64_t Position);
+  EFI_STATUS (*GetInfo)(EFI_FILE_PROTOCOL *This, void *InformationType, UINTN *BufferSize, void *Buffer);
+  EFI_STATUS (*SetInfo)(EFI_FILE_PROTOCOL *This, void *InformationType, UINTN BufferSize, void *Buffer);
+  EFI_STATUS (*Flush)(EFI_FILE_PROTOCOL *This);
+};
+
+struct _EFI_SIMPLE_FILE_SYSTEM_PROTOCOL {
+  uint64_t Revision;
+  EFI_STATUS (*OpenVolume)(EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *This, EFI_FILE_PROTOCOL **Root);
+};
+
+struct _EFI_LOADED_IMAGE_PROTOCOL {
+  uint32_t Revision;
+  EFI_HANDLE ParentHandle;
+  EFI_SYSTEM_TABLE *SystemTable;
+  EFI_HANDLE DeviceHandle;
+  void *FilePath;
+  void *Reserved;
+  uint32_t LoadOptionsSize;
+  void *LoadOptions;
+  void *ImageBase;
+  uint64_t ImageSize;
+  EFI_MEMORY_TYPE ImageCodeType;
+  EFI_MEMORY_TYPE ImageDataType;
+  void *Unload;
+};
+
 // Protocol GUIDs (simplified representations)
 static uint8_t gEfiGraphicsOutputProtocolGuid[16] = {
   0x9b, 0xc0, 0xb0, 0x3e, 0x74, 0x2f, 0x44, 0x9b,
   0x85, 0x85, 0x3e, 0xd4, 0x5e, 0x5e, 0x3c, 0xd9
 };
+
+static uint8_t gEfiSimpleFileSystemProtocolGuid[16] = {
+  0x22, 0x5b, 0x4e, 0x96, 0x59, 0x64, 0xd2, 0x11,
+  0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b
+};
+
+static uint8_t gEfiLoadedImageProtocolGuid[16] = {
+  0xa1, 0x31, 0x1b, 0x5b, 0x62, 0x95, 0xd2, 0x11,
+  0x8e, 0x3f, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b
+};
+
+static uint8_t gEfiFileInfoGuid[16] = {
+  0x92, 0xec, 0x79, 0x09, 0x96, 0x8e, 0x11, 0xd1,
+  0x9f, 0x4d, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b
+};
+
+// File system functions
+static EFI_STATUS load_file_from_device(EFI_HANDLE device_handle, const CHAR16 *file_name, void **file_buffer, UINTN *file_size) {
+  EFI_STATUS status;
+  EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *file_system = NULL;
+  EFI_FILE_PROTOCOL *root_dir = NULL;
+  EFI_FILE_PROTOCOL *file = NULL;
+  EFI_FILE_INFO *file_info = NULL;
+  UINTN info_size;
+  void *buffer = NULL;
+
+  // Get file system protocol
+  status = gBS->HandleProtocol(device_handle, gEfiSimpleFileSystemProtocolGuid, (void**)&file_system);
+  if (status != EFI_SUCCESS) {
+    return status;
+  }
+
+  // Open root directory
+  status = file_system->OpenVolume(file_system, &root_dir);
+  if (status != EFI_SUCCESS) {
+    return status;
+  }
+
+  // Open the file
+  status = root_dir->Open(root_dir, &file, (CHAR16*)file_name, EFI_FILE_MODE_READ, 0);
+  if (status != EFI_SUCCESS) {
+    root_dir->Close(root_dir);
+    return status;
+  }
+
+  // Get file information to determine size
+  info_size = sizeof(EFI_FILE_INFO) + 256 * sizeof(CHAR16);
+  status = gBS->AllocatePool(EfiLoaderData, info_size, (void**)&file_info);
+  if (status != EFI_SUCCESS) {
+    file->Close(file);
+    root_dir->Close(root_dir);
+    return status;
+  }
+
+  status = file->GetInfo(file, gEfiFileInfoGuid, &info_size, file_info);
+  if (status != EFI_SUCCESS) {
+    gBS->FreePool(file_info);
+    file->Close(file);
+    root_dir->Close(root_dir);
+    return status;
+  }
+
+  // Allocate buffer for file
+  UINTN buffer_size = (UINTN)file_info->FileSize;
+  status = gBS->AllocatePool(EfiLoaderData, buffer_size, &buffer);
+  if (status != EFI_SUCCESS) {
+    gBS->FreePool(file_info);
+    file->Close(file);
+    root_dir->Close(root_dir);
+    return status;
+  }
+
+  // Read file
+  status = file->Read(file, &buffer_size, buffer);
+  if (status != EFI_SUCCESS) {
+    gBS->FreePool(buffer);
+    gBS->FreePool(file_info);
+    file->Close(file);
+    root_dir->Close(root_dir);
+    return status;
+  }
+
+  // Cleanup
+  gBS->FreePool(file_info);
+  file->Close(file);
+  root_dir->Close(root_dir);
+
+  *file_buffer = buffer;
+  *file_size = buffer_size;
+  return EFI_SUCCESS;
+}
+
+static EFI_STATUS load_kernel_file(EFI_HANDLE image_handle, const CHAR16 *kernel_name, void **kernel_buffer, UINTN *kernel_size) {
+  EFI_STATUS status;
+  EFI_LOADED_IMAGE_PROTOCOL *loaded_image = NULL;
+
+  // Get loaded image protocol to find our device
+  status = gBS->HandleProtocol(image_handle, gEfiLoadedImageProtocolGuid, (void**)&loaded_image);
+  if (status != EFI_SUCCESS) {
+    return status;
+  }
+
+  // Try to load from the same device as the bootloader
+  return load_file_from_device(loaded_image->DeviceHandle, kernel_name, kernel_buffer, kernel_size);
+}
+
+// ELF loading functions
+static int validate_elf_header(const elf64_ehdr *header) {
+  // Check ELF magic number
+  if (header->e_ident[EI_MAG0] != ELFMAG0 ||
+      header->e_ident[EI_MAG1] != ELFMAG1 ||
+      header->e_ident[EI_MAG2] != ELFMAG2 ||
+      header->e_ident[EI_MAG3] != ELFMAG3) {
+    return 0;
+  }
+
+  // Check for 64-bit ELF
+  if (header->e_ident[EI_CLASS] != ELFCLASS64) {
+    return 0;
+  }
+
+  // Check for little-endian
+  if (header->e_ident[EI_DATA] != ELFDATA2LSB) {
+    return 0;
+  }
+
+  // Check for executable
+  if (header->e_type != ET_EXEC) {
+    return 0;
+  }
+
+  // Check for x86_64 architecture
+  if (header->e_machine != EM_X86_64) {
+    return 0;
+  }
+
+  return 1;
+}
+
+static EFI_STATUS load_elf_segments(const void *elf_data, UINTN elf_size, uint64_t *entry_point) {
+  const elf64_ehdr *elf_header = (const elf64_ehdr*)elf_data;
+  EFI_STATUS status;
+
+  // Validate ELF header
+  if (!validate_elf_header(elf_header)) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  *entry_point = elf_header->e_entry;
+
+  // Check bounds
+  if (elf_header->e_phoff + (elf_header->e_phnum * elf_header->e_phentsize) > elf_size) {
+    return EFI_INVALID_PARAMETER;
+  }
+
+  // Process program headers
+  const elf64_phdr *program_headers = (const elf64_phdr*)((const uint8_t*)elf_data + elf_header->e_phoff);
+
+  for (int i = 0; i < elf_header->e_phnum; i++) {
+    const elf64_phdr *phdr = &program_headers[i];
+
+    // Only load LOAD segments
+    if (phdr->p_type != PT_LOAD) {
+      continue;
+    }
+
+    // Validate segment bounds
+    if (phdr->p_offset + phdr->p_filesz > elf_size) {
+      return EFI_INVALID_PARAMETER;
+    }
+
+    // Allocate pages for the segment
+    uint64_t pages = (phdr->p_memsz + 4095) / 4096; // Round up to page boundary
+    uint64_t segment_address = phdr->p_paddr;
+
+    status = gBS->AllocatePages(1, EfiLoaderData, pages, &segment_address); // 1 = AllocateAddress
+    if (status != EFI_SUCCESS) {
+      // Try allocating at any address and hope it works
+      status = gBS->AllocatePages(0, EfiLoaderData, pages, &segment_address); // 0 = AllocateAnyPages
+      if (status != EFI_SUCCESS) {
+        return status;
+      }
+    }
+
+    // Copy segment data from file
+    const uint8_t *src = (const uint8_t*)elf_data + phdr->p_offset;
+    uint8_t *dst = (uint8_t*)segment_address;
+
+    // Copy file data
+    for (UINTN j = 0; j < phdr->p_filesz; j++) {
+      dst[j] = src[j];
+    }
+
+    // Zero remaining memory (BSS)
+    for (UINTN j = phdr->p_filesz; j < phdr->p_memsz; j++) {
+      dst[j] = 0;
+    }
+  }
+
+  return EFI_SUCCESS;
+}
 
 // Utility functions
 static void print_string(const CHAR16 *str) {
@@ -637,12 +908,109 @@ EFI_STATUS efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable) {
   print_number(boot_info.bootloader_timestamp);
   print_ascii(" seconds since 2000\r\n");
 
-  print_ascii("\r\nBootloader ready. In a real OS, kernel would be loaded here.\r\n");
-  print_ascii("Press any key to exit...\r\n");
+  // Load kernel
+  print_ascii("\r\nLoading kernel...\r\n");
+  void *kernel_buffer = NULL;
+  UINTN kernel_size = 0;
+  uint64_t kernel_entry_point = 0;
 
-  // Wait for user input
-  wait_for_key();
+  // Define kernel filename (UTF-16)
+  CHAR16 kernel_filename[] = L"kernel.elf";
 
+  status = load_kernel_file(ImageHandle, kernel_filename, &kernel_buffer, &kernel_size);
+  if (status != EFI_SUCCESS) {
+    print_ascii("ERROR: Failed to load kernel file: ");
+    print_hex(status);
+    print_ascii("\r\nPress any key to exit...\r\n");
+    wait_for_key();
+    return status;
+  }
+
+  print_ascii("Kernel loaded successfully (");
+  print_number(kernel_size);
+  print_ascii(" bytes)\r\n");
+
+  // Parse and load ELF
+  print_ascii("Parsing ELF and loading segments...\r\n");
+  status = load_elf_segments(kernel_buffer, kernel_size, &kernel_entry_point);
+  if (status != EFI_SUCCESS) {
+    print_ascii("ERROR: Failed to load ELF segments: ");
+    print_hex(status);
+    print_ascii("\r\nPress any key to exit...\r\n");
+    wait_for_key();
+    gBS->FreePool(kernel_buffer);
+    return status;
+  }
+
+  print_ascii("ELF segments loaded successfully\r\n");
+  print_ascii("Kernel entry point: ");
+  print_hex(kernel_entry_point);
+  print_ascii("\r\n");
+
+  // Fill kernel info in boot structure
+  boot_info.kernel.kernel_entry_point = kernel_entry_point;
+  boot_info.kernel.kernel_physical_address = kernel_entry_point; // For now, assume same
+  boot_info.kernel.kernel_virtual_address = kernel_entry_point;  // For now, assume same  
+  boot_info.kernel.kernel_size = kernel_size;
+
+  // Recalculate checksum
+  boot_info.checksum = calculate_checksum(&boot_info);
+
+  // Get final memory map for kernel
+  print_ascii("Getting final memory map...\r\n");
+  UINTN map_size = 0;
+  EFI_MEMORY_DESCRIPTOR *memory_map = NULL;
+  UINTN map_key;
+  UINTN descriptor_size;
+  uint32_t descriptor_version;
+
+  // Get memory map size
+  status = gBS->GetMemoryMap(&map_size, memory_map, &map_key, &descriptor_size, &descriptor_version);
+  if (status != EFI_BUFFER_TOO_SMALL) {
+    print_ascii("ERROR: Failed to get memory map size\r\n");
+    gBS->FreePool(kernel_buffer);
+    return status;
+  }
+
+  // Allocate buffer
+  map_size += 2 * descriptor_size;
+  status = gBS->AllocatePool(EfiLoaderData, map_size, (void**)&memory_map);
+  if (status != EFI_SUCCESS) {
+    print_ascii("ERROR: Failed to allocate memory map buffer\r\n");
+    gBS->FreePool(kernel_buffer);
+    return status;
+  }
+
+  // Get final memory map
+  status = gBS->GetMemoryMap(&map_size, memory_map, &map_key, &descriptor_size, &descriptor_version);
+  if (status != EFI_SUCCESS) {
+    print_ascii("ERROR: Failed to get final memory map\r\n");
+    gBS->FreePool(memory_map);
+    gBS->FreePool(kernel_buffer);
+    return status;
+  }
+
+  // Exit boot services
+  print_ascii("Exiting UEFI boot services...\r\n");
+  status = gBS->ExitBootServices(ImageHandle, map_key);
+  if (status != EFI_SUCCESS) {
+    print_ascii("ERROR: Failed to exit boot services: ");
+    print_hex(status);
+    print_ascii("\r\n");
+    gBS->FreePool(memory_map);
+    gBS->FreePool(kernel_buffer);
+    return status;
+  }
+
+  // Boot services are no longer available - we're now in the kernel environment
+  // Transfer control to kernel
+  typedef void (*kernel_entry_func)(xo_boot_info_t *boot_info);
+  kernel_entry_func kernel_main = (kernel_entry_func)kernel_entry_point;
+  
+  // Jump to kernel!
+  kernel_main(&boot_info);
+
+  // Should never reach here
   return EFI_SUCCESS;
 }
 
