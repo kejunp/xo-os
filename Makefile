@@ -15,9 +15,9 @@ ESP_DIR = $(BUILD_DIR)/esp
 # Compiler flags
 CFLAGS = -target x86_64-unknown-windows -ffreestanding -fno-stack-protector \
          -fno-stack-check -fshort-wchar -mno-red-zone -Wall -Wextra \
-         -I$(BOOT_DIR) -I$(KERNEL_DIR) -Wno-unused-parameter
+         -I. -Wno-unused-parameter
 
-# Bootloader specific flags  
+# Bootloader specific flags
 BOOT_CFLAGS = $(CFLAGS) -DGNU_EFI_USE_MS_ABI -fno-builtin
 
 # Kernel specific flags
@@ -110,3 +110,4 @@ info: $(BOOTLOADER_EFI) $(KERNEL_ELF)
 	readelf -h $(KERNEL_ELF) | grep "Entry point"
 
 .PHONY: all clean esp disk-image test test-quick info
+
