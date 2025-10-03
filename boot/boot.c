@@ -1,5 +1,4 @@
-#include <stdint.h>
-#include <stddef.h>
+#include "../helpers/types.h"
 #include "elf.h"
 
 // Compiler intrinsics and runtime support
@@ -24,21 +23,21 @@ typedef struct _EFI_GRAPHICS_OUTPUT_PROTOCOL EFI_GRAPHICS_OUTPUT_PROTOCOL;
 typedef struct _EFI_LOADED_IMAGE_PROTOCOL EFI_LOADED_IMAGE_PROTOCOL;
 
 typedef void* EFI_HANDLE;
-typedef uint64_t EFI_STATUS;
+typedef unsigned long EFI_STATUS;
 typedef uint64_t UINTN;
 typedef uint16_t CHAR16;
 
-// UEFI Status Codes
-#define EFI_SUCCESS               0x0000000000000000ULL
-#define EFI_LOAD_ERROR            0x8000000000000001ULL
-#define EFI_INVALID_PARAMETER     0x8000000000000002ULL
-#define EFI_UNSUPPORTED           0x8000000000000003ULL
-#define EFI_BAD_BUFFER_SIZE       0x8000000000000004ULL
-#define EFI_BUFFER_TOO_SMALL      0x8000000000000005ULL
-#define EFI_NOT_READY             0x8000000000000006ULL
-#define EFI_DEVICE_ERROR          0x8000000000000007ULL
-#define EFI_NOT_FOUND             0x800000000000000EULL
-#define EFI_OUT_OF_RESOURCES      0x8000000000000009ULL
+// UEFI Status Codes (using proper size for unsigned long)
+#define EFI_SUCCESS               0x00000000UL
+#define EFI_LOAD_ERROR            0x80000001UL
+#define EFI_INVALID_PARAMETER     0x80000002UL
+#define EFI_UNSUPPORTED           0x80000003UL
+#define EFI_BAD_BUFFER_SIZE       0x80000004UL
+#define EFI_BUFFER_TOO_SMALL      0x80000005UL
+#define EFI_NOT_READY             0x80000006UL
+#define EFI_DEVICE_ERROR          0x80000007UL
+#define EFI_NOT_FOUND             0x8000000EUL
+#define EFI_OUT_OF_RESOURCES      0x80000009UL
 
 // UEFI Memory Types
 typedef enum {
@@ -196,7 +195,7 @@ struct _EFI_SYSTEM_TABLE {
   void* ConfigurationTable;
 };
 
-#define XO_BOOT_INFO_MAGIC 0x584F424F4F54  // "XOBOOT"
+#define XO_BOOT_INFO_MAGIC 0x584F424F4F54ULL  // "XOBOOT"
 #define XO_MAX_MEMORY_ENTRIES 256
 #define XO_MAX_CMDLINE_LENGTH 1024
 
@@ -534,7 +533,7 @@ static EFI_STATUS load_elf_segments(const void *elf_data, UINTN elf_size, uint64
 
     // Copy segment data from file
     const uint8_t *src = (const uint8_t*)elf_data + phdr->p_offset;
-    uint8_t *dst = (uint8_t*)segment_address;
+    uint8_t *dst = (uint8_t*)(void*)(uintptr_t)segment_address;
 
     // Copy file data
     for (UINTN j = 0; j < phdr->p_filesz; j++) {
@@ -853,7 +852,7 @@ EFI_STATUS efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable) {
   }
 
   // Initialize boot info structure
-  boot_info.magic = XO_BOOT_INFO_MAGIC;
+  boot_info.magic = (uint64_t)XO_BOOT_INFO_MAGIC;
   boot_info.version = 1;
   boot_info.size = sizeof(xo_boot_info_t);
   boot_info.bootloader_timestamp = get_timestamp();
@@ -876,10 +875,10 @@ EFI_STATUS efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable) {
   }
 
   // Fill UEFI info
-  boot_info.uefi.efi_system_table = (uint64_t)SystemTable;
+  boot_info.uefi.efi_system_table = (uint64_t)(uintptr_t)(void*)SystemTable;
   boot_info.uefi.efi_version = SystemTable->Revision;
   boot_info.uefi.runtime_services_supported = (SystemTable->RuntimeServices != NULL) ? 1 : 0;
-  boot_info.uefi.loader_signature = 0x584F424F4F544552ULL; // "XOBOOTER"
+  boot_info.uefi.loader_signature = (uint64_t)0x584F424F4F544552ULL; // "XOBOOTER"
 
   // Calculate checksum
   boot_info.checksum = calculate_checksum(&boot_info);
@@ -950,7 +949,7 @@ EFI_STATUS efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable) {
   // Fill kernel info in boot structure
   boot_info.kernel.kernel_entry_point = kernel_entry_point;
   boot_info.kernel.kernel_physical_address = kernel_entry_point; // For now, assume same
-  boot_info.kernel.kernel_virtual_address = kernel_entry_point;  // For now, assume same  
+  boot_info.kernel.kernel_virtual_address = kernel_entry_point;  // For now, assume same
   boot_info.kernel.kernel_size = kernel_size;
 
   // Recalculate checksum
@@ -1005,8 +1004,8 @@ EFI_STATUS efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable) {
   // Boot services are no longer available - we're now in the kernel environment
   // Transfer control to kernel
   typedef void (*kernel_entry_func)(xo_boot_info_t *boot_info);
-  kernel_entry_func kernel_main = (kernel_entry_func)kernel_entry_point;
-  
+  kernel_entry_func kernel_main = (kernel_entry_func)(void*)(uintptr_t)kernel_entry_point;
+
   // Jump to kernel!
   kernel_main(&boot_info);
 
