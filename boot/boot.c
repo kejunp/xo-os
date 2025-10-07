@@ -1,4 +1,4 @@
-#include "../helpers/types.h"
+#include "helpers/defs.h"
 #include "elf.h"
 
 // Compiler intrinsics and runtime support
@@ -214,14 +214,14 @@ typedef enum {
   XO_MEMORY_PERSISTENT = 12
 } xo_memory_type_t;
 
-typedef struct {
+struct xo_memory_entry {
   uint64_t base_address;
   uint64_t length;
   xo_memory_type_t type;
   uint32_t attributes;
-} xo_memory_entry_t;
+};
 
-typedef struct {
+struct xo_graphics_info {
   uint64_t framebuffer_address;
   uint32_t framebuffer_width;
   uint32_t framebuffer_height;
@@ -235,18 +235,18 @@ typedef struct {
   uint32_t blue_field_position;
   uint32_t reserved_mask_size;
   uint32_t reserved_field_position;
-} xo_graphics_info_t;
+};
 
-typedef struct {
+struct xo_hardware_info {
   uint64_t acpi_rsdp_address;
   uint64_t smbios_address;
   uint64_t device_tree_address;
   uint32_t device_tree_size;
   uint32_t cpu_count;
   uint64_t cpu_features;
-} xo_hardware_info_t;
+};
 
-typedef struct {
+struct xo_kernel_info {
   uint64_t kernel_physical_address;
   uint64_t kernel_virtual_address;
   uint64_t kernel_size;
@@ -254,34 +254,34 @@ typedef struct {
   uint64_t initrd_address;
   uint64_t initrd_size;
   char cmdline[XO_MAX_CMDLINE_LENGTH];
-} xo_kernel_info_t;
+};
 
-typedef struct {
+struct xo_uefi_info {
   uint64_t efi_system_table;
   uint64_t efi_runtime_services;
   uint8_t runtime_services_supported;
   uint32_t efi_version;
   uint64_t loader_signature;
-} xo_uefi_info_t;
+};
 
-typedef struct {
+struct xo_boot_info {
   uint64_t magic;
   uint32_t version;
   uint32_t size;
 
-  xo_memory_entry_t memory_map[XO_MAX_MEMORY_ENTRIES];
+  struct xo_memory_entry memory_map[XO_MAX_MEMORY_ENTRIES];
   uint32_t memory_map_entries;
   uint64_t total_memory;
   uint64_t available_memory;
 
-  xo_graphics_info_t graphics;
-  xo_hardware_info_t hardware;
-  xo_kernel_info_t kernel;
-  xo_uefi_info_t uefi;
+  struct xo_graphics_info graphics;
+  struct xo_hardware_info hardware;
+  struct xo_kernel_info kernel;
+  struct xo_uefi_info uefi;
 
   uint64_t bootloader_timestamp;
   uint32_t checksum;
-} xo_boot_info_t;
+};
 
 // Global variables
 static EFI_SYSTEM_TABLE *gST = NULL;
@@ -666,10 +666,10 @@ static uint32_t find_bit_position(uint32_t mask) {
   return position;
 }
 
-static uint32_t calculate_checksum(const xo_boot_info_t *info) {
+static uint32_t calculate_checksum(const struct xo_boot_info *info) {
   const uint8_t *data = (const uint8_t*)info;
   uint32_t checksum = 0;
-  UINTN size = sizeof(xo_boot_info_t) - sizeof(uint32_t); // Exclude checksum field
+  UINTN size = sizeof(struct xo_boot_info) - sizeof(uint32_t); // Exclude checksum field
 
   for (UINTN i = 0; i < size; i++) {
     checksum += data[i];
@@ -708,7 +708,7 @@ static xo_memory_type_t efi_to_xo_memory_type(uint32_t efi_type) {
 }
 
 // Memory map functions
-static EFI_STATUS get_memory_map(xo_boot_info_t *boot_info) {
+static EFI_STATUS get_memory_map(struct xo_boot_info *boot_info) {
   EFI_STATUS status;
   UINTN map_size = 0;
   EFI_MEMORY_DESCRIPTOR *memory_map = NULL;
@@ -745,7 +745,7 @@ static EFI_STATUS get_memory_map(xo_boot_info_t *boot_info) {
   for (UINTN i = 0; i < num_descriptors && boot_info->memory_map_entries < XO_MAX_MEMORY_ENTRIES; i++) {
     EFI_MEMORY_DESCRIPTOR *desc = (EFI_MEMORY_DESCRIPTOR*)((uint8_t*)memory_map + i * descriptor_size);
 
-    xo_memory_entry_t *entry = &boot_info->memory_map[boot_info->memory_map_entries];
+    struct xo_memory_entry *entry = &boot_info->memory_map[boot_info->memory_map_entries];
     entry->base_address = desc->PhysicalStart;
     entry->length = desc->NumberOfPages * 4096; // EFI pages are 4KB
     entry->type = efi_to_xo_memory_type(desc->Type);
@@ -764,7 +764,7 @@ static EFI_STATUS get_memory_map(xo_boot_info_t *boot_info) {
 }
 
 // Graphics initialization
-static EFI_STATUS init_graphics(xo_boot_info_t *boot_info) {
+static EFI_STATUS init_graphics(struct xo_boot_info *boot_info) {
   EFI_STATUS status;
   EFI_GRAPHICS_OUTPUT_PROTOCOL *gop = NULL;
 
@@ -837,7 +837,7 @@ static EFI_STATUS init_graphics(xo_boot_info_t *boot_info) {
 // Main entry point
 EFI_STATUS efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable) {
   EFI_STATUS status;
-  xo_boot_info_t boot_info = {0};
+  struct xo_boot_info boot_info = {0};
 
   // Initialize globals
   gST = SystemTable;
@@ -854,7 +854,7 @@ EFI_STATUS efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable) {
   // Initialize boot info structure
   boot_info.magic = (uint64_t)XO_BOOT_INFO_MAGIC;
   boot_info.version = 1;
-  boot_info.size = sizeof(xo_boot_info_t);
+  boot_info.size = sizeof(struct xo_boot_info);
   boot_info.bootloader_timestamp = get_timestamp();
 
   // Get memory map
@@ -1003,7 +1003,7 @@ EFI_STATUS efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable) {
 
   // Boot services are no longer available - we're now in the kernel environment
   // Transfer control to kernel
-  typedef void (*kernel_entry_func)(xo_boot_info_t *boot_info);
+  typedef void (*kernel_entry_func)(struct xo_boot_info *boot_info);
   kernel_entry_func kernel_main = (kernel_entry_func)(void*)(uintptr_t)kernel_entry_point;
 
   // Jump to kernel!

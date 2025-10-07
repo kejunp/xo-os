@@ -21,14 +21,14 @@ typedef enum {
   XO_MEMORY_PERSISTENT = 12
 } xo_memory_type_t;
 
-typedef struct {
+struct xo_memory_entry {
   uint64_t base_address;
   uint64_t length;
   xo_memory_type_t type;
   uint32_t attributes;
-} xo_memory_entry_t;
+};
 
-typedef struct {
+struct xo_graphics_info {
   uint64_t framebuffer_address;
   uint32_t framebuffer_width;
   uint32_t framebuffer_height;
@@ -42,18 +42,18 @@ typedef struct {
   uint32_t blue_field_position;
   uint32_t reserved_mask_size;
   uint32_t reserved_field_position;
-} xo_graphics_info_t;
+};
 
-typedef struct {
+struct xo_hardware_info {
   uint64_t acpi_rsdp_address;
   uint64_t smbios_address;
   uint64_t device_tree_address;
   uint32_t device_tree_size;
   uint32_t cpu_count;
   uint64_t cpu_features;
-} xo_hardware_info_t;
+};
 
-typedef struct {
+struct xo_kernel_info {
   uint64_t kernel_physical_address;
   uint64_t kernel_virtual_address;
   uint64_t kernel_size;
@@ -61,37 +61,37 @@ typedef struct {
   uint64_t initrd_address;
   uint64_t initrd_size;
   char cmdline[XO_MAX_CMDLINE_LENGTH];
-} xo_kernel_info_t;
+};
 
-typedef struct {
+struct xo_uefi_info {
   uint64_t efi_system_table;
   uint64_t efi_runtime_services;
   uint8_t runtime_services_supported;
   uint32_t efi_version;
   uint64_t loader_signature;
-} xo_uefi_info_t;
+};
 
-typedef struct {
+struct xo_boot_info {
   uint64_t magic;
   uint32_t version;
   uint32_t size;
 
-  xo_memory_entry_t memory_map[XO_MAX_MEMORY_ENTRIES];
+  struct xo_memory_entry memory_map[XO_MAX_MEMORY_ENTRIES];
   uint32_t memory_map_entries;
   uint64_t total_memory;
   uint64_t available_memory;
 
-  xo_graphics_info_t graphics;
-  xo_hardware_info_t hardware;
-  xo_kernel_info_t kernel;
-  xo_uefi_info_t uefi;
+  struct xo_graphics_info graphics;
+  struct xo_hardware_info hardware;
+  struct xo_kernel_info kernel;
+  struct xo_uefi_info uefi;
 
   uint64_t bootloader_timestamp;
   uint32_t checksum;
-} xo_boot_info_t;
+};
 
 // Simple framebuffer operations
-static void plot_pixel(xo_graphics_info_t *gfx, uint32_t x, uint32_t y, uint32_t color) {
+static void plot_pixel(struct xo_graphics_info *gfx, uint32_t x, uint32_t y, uint32_t color) {
   if (!gfx->framebuffer_address || x >= gfx->framebuffer_width || y >= gfx->framebuffer_height) {
     return;
   }
@@ -101,7 +101,7 @@ static void plot_pixel(xo_graphics_info_t *gfx, uint32_t x, uint32_t y, uint32_t
   framebuffer[offset] = color;
 }
 
-static void clear_screen(xo_graphics_info_t *gfx, uint32_t color) {
+static void clear_screen(struct xo_graphics_info *gfx, uint32_t color) {
   if (!gfx->framebuffer_address) {
     return;
   }
@@ -116,7 +116,7 @@ static void clear_screen(xo_graphics_info_t *gfx, uint32_t color) {
   }
 }
 
-static void draw_test_pattern(xo_graphics_info_t *gfx) {
+static void draw_test_pattern(struct xo_graphics_info *gfx) {
   if (!gfx->framebuffer_address) {
     return;
   }
@@ -146,7 +146,7 @@ static void draw_test_pattern(xo_graphics_info_t *gfx) {
 
 // Kernel entry point
 // This function is called by the bootloader after loading the kernel
-void kernel_main(xo_boot_info_t *boot_info) {
+void kernel_main(struct xo_boot_info *boot_info) {
   // Verify boot info magic
   if (!boot_info || boot_info->magic != XO_BOOT_INFO_MAGIC) {
     // Invalid boot info - halt
