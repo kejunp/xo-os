@@ -1,5 +1,9 @@
 #include "spinlock.h"
 
+void spin_init(struct spinlock* lk) {
+  lk->locked = 0;
+}
+
 void spin_lock(struct spinlock* lk) {
   while (__atomic_exchange_n(&lk->locked, 1, __ATOMIC_ACQUIRE));
 }
