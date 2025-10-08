@@ -1,5 +1,18 @@
 #include "helpers/defs.h"
 
+// Compiler intrinsics and runtime support
+void __chkstk(void) {
+  // Stack checking stub - not needed for our bootloader
+}
+
+void *memset(void *s, int c, size_t n) {
+  unsigned char *p = (unsigned char*)s;
+  while (n--) {
+    *p++ = (unsigned char)c;
+  }
+  return s;
+}
+
 // UEFI Basic Types
 typedef struct _EFI_SYSTEM_TABLE EFI_SYSTEM_TABLE;
 typedef struct _EFI_BOOT_SERVICES EFI_BOOT_SERVICES;
