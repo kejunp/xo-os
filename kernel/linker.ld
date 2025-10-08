@@ -1,28 +1,42 @@
-ENTRY(kernel_main)
+OUTPUT_ARCH("x86_64")
+ENTRY(_start)
 
-SECTIONS
-{
-    /* Start the kernel at 1MB to avoid low memory */
-    . = 0x100000;
+SECTIONS {
+  /* Kernel load address */
+  . = 0x100000;
 
-    .text : {
-        *(.text)
-        *(.text.*)
-    }
+  /* --- Code section --- */
+  .text : ALIGN(0x1000) {
+    *(.text.entry)
+    *(.text .text.*)
+    . = ALIGN(0x1000);
 
-    .rodata : {
-        *(.rodata)
-        *(.rodata.*)
-    }
+    /* trampoline page */
+    _trampoline = .;
+    *(trampsec)
+    . = ALIGN(0x1000);
+    ASSERT(. - _trampoline <= 0x1000, "trampoline to large");
 
-    .data : {
-        *(.data)
-        *(.data.*)
-    }
+    PROVIDE(etext = .);
+  }
 
-    .bss : {
-        *(.bss)
-        *(.bss.*)
-        *(COMMON)
-    }
+  /* --- Read-only data --- */
+  .rodata : ALIGN(0x1000) {
+    *(.rodata .rodata.*)
+  }
+
+  /* --- Initialized data --- */
+  .data : ALIGN(0x1000) {
+    *(.data .data.*)
+  }
+
+  /* --- Uninitialized data --- */
+  .bss : ALIGN(0x1000) {
+    *(.bss .bss.*)
+    *(COMMON)
+  }
+
+  . = ALIGN(0x1000);
+  PROVIDE(end = .);
 }
+
