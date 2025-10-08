@@ -1,3 +1,5 @@
+#pragma once
+
 #include "helpers/defs.h"
 
 struct spinlock {

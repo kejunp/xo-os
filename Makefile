@@ -9,6 +9,7 @@ OBJCOPY = llvm-objcopy
 # Directories
 BOOT_DIR = boot
 KERNEL_DIR = kernel
+TEST_DIR = tests
 BUILD_DIR = build
 ESP_DIR = $(BUILD_DIR)/esp
 
@@ -23,7 +24,10 @@ BOOT_CFLAGS = $(CFLAGS) -DGNU_EFI_USE_MS_ABI -fno-builtin
 # Kernel specific flags
 KERNEL_CFLAGS = -target x86_64-elf -ffreestanding -fno-stack-protector \
                 -mcmodel=kernel -mno-mmx -mno-sse -mno-sse2 -Wall -Wextra \
-                -I$(KERNEL_DIR) -Wno-unused-parameter
+                -I. -Wno-unused-parameter
+
+# Test specific flags
+TEST_CFLAGS = $(KERNEL_CFLAGS)
 
 # Linker flags
 BOOT_LDFLAGS = -target x86_64-unknown-windows -nostdlib -Wl,-entry:efi_main \
@@ -38,6 +42,11 @@ KERNEL_SOURCES = $(KERNEL_DIR)/main.c
 # Target files
 BOOTLOADER_EFI = $(BUILD_DIR)/BOOTX64.EFI
 KERNEL_ELF = $(BUILD_DIR)/kernel.elf
+TEST_ELF = $(BUILD_DIR)/test_kernel.elf
+
+# Test source files
+TEST_SOURCES = $(TEST_DIR)/test_main.c $(TEST_DIR)/test_kalloc.c
+KERNEL_MM_SOURCES = $(KERNEL_DIR)/mm/kalloc.c $(KERNEL_DIR)/scheduler/spinlock.c
 
 # Default target
 all: $(BOOTLOADER_EFI) $(KERNEL_ELF) esp
@@ -54,6 +63,14 @@ $(BOOTLOADER_EFI): $(BOOT_SOURCES) $(BUILD_DIR)
 $(KERNEL_ELF): $(KERNEL_SOURCES) $(BUILD_DIR)
 	$(CC) $(KERNEL_CFLAGS) -c -o $(BUILD_DIR)/main.o $(KERNEL_DIR)/main.c
 	$(LD) $(KERNEL_LDFLAGS) -o $@ $(BUILD_DIR)/main.o
+
+# Build test kernel
+$(TEST_ELF): $(TEST_SOURCES) $(KERNEL_MM_SOURCES) $(BUILD_DIR)
+	$(CC) $(TEST_CFLAGS) -c -o $(BUILD_DIR)/test_main.o $(TEST_DIR)/test_main.c
+	$(CC) $(TEST_CFLAGS) -c -o $(BUILD_DIR)/test_kalloc.o $(TEST_DIR)/test_kalloc.c
+	$(CC) $(TEST_CFLAGS) -c -o $(BUILD_DIR)/kalloc.o $(KERNEL_DIR)/mm/kalloc.c
+	$(CC) $(TEST_CFLAGS) -c -o $(BUILD_DIR)/spinlock.o $(KERNEL_DIR)/scheduler/spinlock.c
+	$(LD) $(KERNEL_LDFLAGS) -o $@ $(BUILD_DIR)/test_main.o $(BUILD_DIR)/test_kalloc.o $(BUILD_DIR)/kalloc.o $(BUILD_DIR)/spinlock.o
 
 # Create ESP (EFI System Partition) layout
 esp: $(BOOTLOADER_EFI) $(KERNEL_ELF)
@@ -81,8 +98,13 @@ disk-image: esp
 	sudo umount $(BUILD_DIR)/mnt
 	sudo losetup -d /dev/loop0
 
-# Test with QEMU
-test: disk-image
+# Run unit tests
+test: $(TEST_ELF)
+	@echo "Running unit tests..."
+	qemu-system-x86_64 -kernel $(TEST_ELF) -m 512M -nographic -serial stdio -monitor none
+
+# Test with QEMU (renamed to avoid conflict)
+test-system: disk-image
 	qemu-system-x86_64 -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE.fd \
 	                    -drive if=pflash,format=raw,file=/usr/share/OVMF/OVMF_VARS.fd \
 	                    -drive format=raw,file=$(BUILD_DIR)/disk.img \
@@ -109,5 +131,5 @@ info: $(BOOTLOADER_EFI) $(KERNEL_ELF)
 	@echo "=== Kernel Entry Point ==="
 	readelf -h $(KERNEL_ELF) | grep "Entry point"
 
-.PHONY: all clean esp disk-image test test-quick info
+.PHONY: all clean esp disk-image test test-system test-quick info
 

@@ -1,4 +1,5 @@
-#include "helpers/defs.h"
+#pragma once
+
 #include "boot/boot.h"
 
 void* kalloc(void);

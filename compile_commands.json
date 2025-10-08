@@ -3,5 +3,10 @@
         "command": "cc -c -target x86_64-unknown-windows -ffreestanding -fno-stack-protector -fno-stack-check -fshort-wchar -mno-red-zone -Wall -Wextra -I. -Wno-unused-parameter -DGNU_EFI_USE_MS_ABI -fno-builtin -target x86_64-unknown-windows -nostdlib -fuse-ld=lld -o build/BOOTX64.EFI boot/boot.c",
         "directory": "/home/kejun/dev/xo-os",
         "file": "/home/kejun/dev/xo-os/boot/boot.c"
+    },
+    {
+        "command": "cc -c -target x86_64-elf -ffreestanding -fno-stack-protector -mcmodel=kernel -mno-mmx -mno-sse -mno-sse2 -Wall -Wextra -I. -Wno-unused-parameter -o build/main.o kernel/main.c",
+        "directory": "/home/kejun/dev/xo-os",
+        "file": "/home/kejun/dev/xo-os/kernel/main.c"
     }
 ]
