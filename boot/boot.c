@@ -1,5 +1,4 @@
-#include "helpers/defs.h"
-#include "elf.h"
+#include "boot.h"
 
 // Compiler intrinsics and runtime support
 void __chkstk(void) {
