@@ -3,11 +3,11 @@
 #include "helpers/defs.h"
 
 // Compiler intrinsics and runtime support
-void __chkstk(void) {
+static inline void __chkstk(void) {
   // Stack checking stub - not needed for our bootloader
 }
 
-void *memset(void *s, int c, size_t n) {
+static inline void *memset(void *s, int c, size_t n) {
   unsigned char *p = (unsigned char*)s;
   while (n--) {
     *p++ = (unsigned char)c;
