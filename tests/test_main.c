@@ -4,6 +4,7 @@
 
 // Forward declaration of test functions
 void run_kalloc_tests(void);
+void test_rbtree_all(void);
 
 // Simple test output functions (we'll use serial or basic console)
 void test_print(const char* str) {
@@ -82,6 +83,7 @@ void kernel_main(struct xo_boot_info *boot_info) {
 
     // Run all tests
     run_kalloc_tests();
+    test_rbtree_all();
 
     // Print test summary
     test_summary();

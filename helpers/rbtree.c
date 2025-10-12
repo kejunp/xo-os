@@ -1,5 +1,37 @@
 #include "rbtree.h"
 
+static inline struct rb_node* rb_parent(const struct rb_node* node) {
+  return node->parent;
+}
+
+static inline enum rb_color rb_color(const struct rb_node* node) {
+  return node->color;
+}
+
+static inline int rb_is_red(const struct rb_node* node) {
+  return node && node->color == RB_RED;
+}
+
+static inline int rb_is_black(const struct rb_node* node) {
+  return !node || node->color == RB_BLACK;
+}
+
+static inline void rb_set_red(struct rb_node* node) {
+  node->color = RB_RED;
+}
+
+static inline void rb_set_black(struct rb_node* node) {
+  node->color = RB_BLACK;
+}
+
+static inline void rb_set_parent(struct rb_node* node, struct rb_node* parent) {
+  node->parent = parent;
+}
+
+static inline void rb_set_color(struct rb_node* node, enum rb_color color) {
+  node->color = color;
+}
+
 void rb_init_node(struct rb_node* node) {
   node->parent = NULL;
   node->left = NULL;
@@ -51,14 +83,14 @@ static void rb_rotate_right(struct rb_root* root, struct rb_node* node) {
   rb_set_parent(node, left);
 }
 
-void rb_link_node(struct rb_node* node, struct rb_node* parent, struct rb_node** rb_link) {
+static void rb_link_node(struct rb_node* node, struct rb_node* parent, struct rb_node** rb_link) {
   node->parent = parent;
   node->color = RB_RED;
   node->left = node->right = NULL;
   *rb_link = node;
 }
 
-void rb_insert_color(struct rb_root* root, struct rb_node* node) {
+static void rb_insert_color(struct rb_root* root, struct rb_node* node) {
   struct rb_node* parent, *gparent;
 
   while ((parent = rb_parent(node)) && rb_is_red(parent)) {
@@ -112,7 +144,20 @@ void rb_insert_color(struct rb_root* root, struct rb_node* node) {
   rb_set_black(root->node);
 }
 
-void rb_insert_fixup(struct rb_root* root, struct rb_node* node) {
+void rb_insert(struct rb_root* root, struct rb_node* node,
+               int (*cmp)(const struct rb_node* a, const struct rb_node* b)) {
+  struct rb_node** link = &root->node;
+  struct rb_node* parent = NULL;
+  
+  while (*link) {
+    parent = *link;
+    if (cmp(node, parent) < 0)
+      link = &(*link)->left;
+    else
+      link = &(*link)->right;
+  }
+  
+  rb_link_node(node, parent, link);
   rb_insert_color(root, node);
 }
 

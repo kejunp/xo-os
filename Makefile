@@ -45,8 +45,9 @@ KERNEL_ELF = $(BUILD_DIR)/kernel.elf
 TEST_ELF = $(BUILD_DIR)/test_kernel.elf
 
 # Test source files
-TEST_SOURCES = $(TEST_DIR)/test_main.c $(TEST_DIR)/test_kalloc.c
+TEST_SOURCES = $(TEST_DIR)/test_main.c $(TEST_DIR)/test_kalloc.c $(TEST_DIR)/test_rbtree.c
 KERNEL_MM_SOURCES = $(KERNEL_DIR)/mm/kalloc.c $(KERNEL_DIR)/scheduler/spinlock.c
+HELPER_SOURCES = helpers/rbtree.c
 
 # Default target
 all: $(BOOTLOADER_EFI) $(KERNEL_ELF) esp
@@ -65,12 +66,14 @@ $(KERNEL_ELF): $(KERNEL_SOURCES) $(BUILD_DIR)
 	$(LD) $(KERNEL_LDFLAGS) -o $@ $(BUILD_DIR)/main.o
 
 # Build test kernel
-$(TEST_ELF): $(TEST_SOURCES) $(KERNEL_MM_SOURCES) $(BUILD_DIR)
+$(TEST_ELF): $(TEST_SOURCES) $(KERNEL_MM_SOURCES) $(HELPER_SOURCES) $(BUILD_DIR)
 	$(CC) $(TEST_CFLAGS) -c -o $(BUILD_DIR)/test_main.o $(TEST_DIR)/test_main.c
 	$(CC) $(TEST_CFLAGS) -c -o $(BUILD_DIR)/test_kalloc.o $(TEST_DIR)/test_kalloc.c
+	$(CC) $(TEST_CFLAGS) -c -o $(BUILD_DIR)/test_rbtree.o $(TEST_DIR)/test_rbtree.c
 	$(CC) $(TEST_CFLAGS) -c -o $(BUILD_DIR)/kalloc.o $(KERNEL_DIR)/mm/kalloc.c
 	$(CC) $(TEST_CFLAGS) -c -o $(BUILD_DIR)/spinlock.o $(KERNEL_DIR)/scheduler/spinlock.c
-	$(LD) $(KERNEL_LDFLAGS) -o $@ $(BUILD_DIR)/test_main.o $(BUILD_DIR)/test_kalloc.o $(BUILD_DIR)/kalloc.o $(BUILD_DIR)/spinlock.o
+	$(CC) $(TEST_CFLAGS) -c -o $(BUILD_DIR)/rbtree.o helpers/rbtree.c
+	$(LD) $(KERNEL_LDFLAGS) -o $@ $(BUILD_DIR)/test_main.o $(BUILD_DIR)/test_kalloc.o $(BUILD_DIR)/test_rbtree.o $(BUILD_DIR)/kalloc.o $(BUILD_DIR)/spinlock.o $(BUILD_DIR)/rbtree.o
 
 # Create ESP (EFI System Partition) layout
 esp: $(BOOTLOADER_EFI) $(KERNEL_ELF)
