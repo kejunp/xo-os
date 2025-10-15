@@ -27,3 +27,5 @@ typedef long long unsigned int size_t;
 
 typedef uint64_t pde_t;
 
+typedef unsigned int off_t;
+
